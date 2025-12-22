@@ -11,6 +11,11 @@ import tempfile
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import pandas as pd
+import random
+import re
+import os
+from datetime import datetime
+import csv
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -20,41 +25,128 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
+# ==================== FUNÇÕES UTILITÁRIAS ====================
+
+def validar_numero_telefone(numero):
+    """Valida e limpa número de telefone - aceita formato: 55XXXXXXXXXX ou XXXXXXXXXX"""
+    if not numero:
+        return None
+    
+    # Converter para string e remover espaços/caracteres especiais
+    numero_str = str(numero).strip()
+    numero_limpo = re.sub(r'[^\d]', '', numero_str)
+    
+    # Aceita: 55 + 2 dígitos código + 8 ou 9 dígitos do número (10 ou 11)
+    # Ou: apenas 10 ou 11 dígitos (assume código 55 + código área)
+    
+    if len(numero_limpo) == 13 and numero_limpo.startswith('55'):
+        # Formato: 55 + código de área (2) + número (9 ou 10)
+        return numero_limpo  # Mantém como está (55XXXXXXXXXX)
+    elif len(numero_limpo) == 11:
+        # Formato: código de área (2) + número (9)
+        return '55' + numero_limpo  # Adiciona código do Brasil
+    elif len(numero_limpo) == 10:
+        # Formato: código de área (2) + número (8)
+        return '55' + numero_limpo  # Adiciona código do Brasil
+    
+    return None  # Número inválido
+
+def remover_duplicatas_e_validar(numeros):
+    """Remove duplicatas e retorna números válidos. Retorna (válidos, inválidos, duplicatas)"""
+    validos = []
+    invalidos = []
+    vistos = set()
+    duplicatas = 0
+    
+    for num in numeros:
+        num_validado = validar_numero_telefone(num)
+        
+        if num_validado:
+            if num_validado not in vistos:
+                validos.append(num_validado)
+                vistos.add(num_validado)
+            else:
+                duplicatas += 1
+        else:
+            invalidos.append(str(num))
+    
+    return validos, invalidos, duplicatas
+
+def salvar_historico_envio(numero, status, mensagem="", resultado=""):
+    """Salva histórico de envio em CSV"""
+    arquivo_historico = "historico_envios.csv"
+    
+    # Se arquivo não existe, cria com headers
+    criar_arquivo = not os.path.exists(arquivo_historico)
+    
+    try:
+        with open(arquivo_historico, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            
+            if criar_arquivo:
+                writer.writerow(['Data', 'Hora', 'Número', 'Status', 'Resultado', 'Mensagem Chars'])
+            
+            timestamp = datetime.now()
+            data = timestamp.strftime('%d/%m/%Y')
+            hora = timestamp.strftime('%H:%M:%S')
+            
+            writer.writerow([data, hora, numero, status, resultado, len(mensagem)])
+    except Exception as e:
+        print(f"Erro ao salvar histórico: {str(e)}")
+
+def exportar_modelo_excel():
+    """Exporta modelo de planilha Excel para preenchimento de números"""
+    try:
+        # Criar DataFrame com coluna de exemplo
+        df = pd.DataFrame({
+            'Numero': ['5511999999999', '5521998888888', '5585987777777']
+        })
+        
+        # Salvar arquivo
+        arquivo_modelo = "MODELO_CONTATOS.xlsx"
+        df.to_excel(arquivo_modelo, index=False, sheet_name='Contatos')
+        
+        return arquivo_modelo, True
+    except Exception as e:
+        return str(e), False
+
 class AutomatizadorWhatsApp:
     def __init__(self):
-        self.driver = None
-        self.lista_numeros = []
-        self.rodando = False
-        
-        # Constantes específicas do código original
-        self.PAUSA_ENTRE_ENVIOS = 20
-        self.INTERVALO_DIGITACAO = 0.1
-        self.TEMPO_ESPERA_ABERTURA = 15
-        
-                # Controles de estado
+        # Controles de estado
         self.rodando = False
         self.driver = None
         self.lista_numeros = []
         self.logs_mostrados = set()  # Controla logs únicos
         
+        # Constantes
+        self.PAUSA_ENTRE_ENVIOS = 20
+        
         # Interface
         self.root = tk.Tk()
         self.root.title("🚀 Automatizador WhatsApp - Selenium")
-        self.root.geometry("900x800")
+        self.root.geometry("1200x900")
         self.root.resizable(True, True)
+        try:
+            self.root.state('zoomed')  # Maximizar no Windows
+        except:
+            pass  # Fallback para outros SOs
         
         # Variáveis da interface
         self.status_var = tk.StringVar(value="Pronto para iniciar")
         self.pausa_var = tk.StringVar(value="20")
+        self.pausa_min_var = tk.StringVar(value="15")  # Pausa mínima (aleatória)
+        self.pausa_max_var = tk.StringVar(value="25")  # Pausa máxima (aleatória)
+        self.usar_pausa_aleatoria = tk.BooleanVar(value=False)  # Ativar pausa aleatória
+        self.envio_unico = tk.BooleanVar(value=True)  # Enviar em uma única mensagem
         self.contador_chars = tk.StringVar(value="Caracteres: 0")
         self.contador_contatos = tk.StringVar(value="Total: 0 contatos")
         self.log_expandido = False
-        self.modo_headless = tk.BooleanVar(value=False)  # Nova variável para modo em segundo plano
+        self.modo_headless = tk.BooleanVar(value=False)
         
         self.criar_interface()
         
     def criar_interface(self):
-        """Cria a interface gráfica completa baseada no código original"""
+        """Cria a interface gráfica completa"""
         # Configurar estilo
         style = ttk.Style()
         style.theme_use('clam')
@@ -65,21 +157,24 @@ class AutomatizadorWhatsApp:
         style.map('Accent.TButton',
                  background=[('active', '#005A9E')])
         
-        # Configurar grid principal
-        self.root.configure(highlightthickness=0)
-        
         # Canvas com scroll para interface completa
-        canvas = tk.Canvas(self.root)
+        canvas = tk.Canvas(self.root, bg="white", highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=canvas.yview)
         self.scrollable_frame = ttk.Frame(canvas)
         
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        # ID do canvas window para reconfigurar largura
+        canvas_window = canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Função para expandir frame com o canvas
+        def _on_canvas_configure(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+            
+        def _on_frame_configure(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        
+        self.scrollable_frame.bind("<Configure>", _on_frame_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
         
         canvas.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
@@ -87,23 +182,24 @@ class AutomatizadorWhatsApp:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         
-        # Configurar canvas scroll
-        def configure_canvas(event):
-            canvas.configure(scrollregion=canvas.bbox("all"))
-            canvas.itemconfig(canvas.find_all()[0], width=event.width)
-        
+        # Configurar scroll do mouse
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1*(event.delta/120)), "units")
         
-        canvas.bind('<Configure>', configure_canvas)
         canvas.bind_all("<MouseWheel>", _on_mousewheel)
         
         # Frame principal com padding
-        main_frame = ttk.Frame(self.scrollable_frame, padding="30")
-        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        main_frame = ttk.Frame(self.scrollable_frame, padding="10")
+        main_frame.pack(fill="both", expand=True)
         
         main_frame.columnconfigure(0, weight=1)
-        main_frame.rowconfigure(1, weight=1)
+        main_frame.rowconfigure(0, weight=0)  # Título
+        main_frame.rowconfigure(1, weight=0)  # Avisos
+        main_frame.rowconfigure(2, weight=0)  # Mensagem
+        main_frame.rowconfigure(3, weight=0)  # Contatos
+        main_frame.rowconfigure(4, weight=0)  # Config
+        main_frame.rowconfigure(5, weight=0)  # Controles
+        main_frame.rowconfigure(6, weight=1)  # Log (expande)
         
         # === TÍTULO ===
         title_label = ttk.Label(main_frame, 
@@ -126,11 +222,11 @@ class AutomatizadorWhatsApp:
         
         # === MENSAGEM ===
         msg_frame = ttk.LabelFrame(main_frame, text="💬 Mensagem a Enviar", padding="15")
-        msg_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 25))
+        msg_frame.grid(row=2, column=0, columnspan=2, sticky="ewns", pady=(0, 15))
         msg_frame.columnconfigure(0, weight=1)
         
-        self.texto_mensagem = tk.Text(msg_frame, height=7, wrap=tk.WORD, font=('Arial', 10))
-        self.texto_mensagem.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        self.texto_mensagem = tk.Text(msg_frame, height=6, wrap=tk.WORD, font=('Arial', 10))
+        self.texto_mensagem.grid(row=0, column=0, sticky="ewns", pady=(0, 10))
         
         # Texto padrão
         texto_padrao = ("Ola! Esta e uma mensagem de teste automatizada.\n\n"
@@ -147,7 +243,6 @@ class AutomatizadorWhatsApp:
         chars_frame.grid(row=1, column=0, sticky="ew", pady=(5, 0))
         chars_frame.columnconfigure(1, weight=1)
         
-        self.contador_chars = tk.StringVar(value="Caracteres: 0")
         ttk.Label(chars_frame, textvariable=self.contador_chars, font=('Arial', 9)).grid(row=0, column=0, sticky="ew")
         
         # Dica de formatação
@@ -161,54 +256,100 @@ class AutomatizadorWhatsApp:
         
         # === LISTA DE CONTATOS ===
         contatos_frame = ttk.LabelFrame(main_frame, text="📋 Lista de Contatos", padding="15")
-        contatos_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 25))
+        contatos_frame.grid(row=3, column=0, columnspan=2, sticky="ewns", pady=(0, 15))
         contatos_frame.columnconfigure(1, weight=1)
+        contatos_frame.rowconfigure(1, weight=1)
         
         # Botão para selecionar arquivo
         self.btn_arquivo = ttk.Button(contatos_frame, 
                                      text="📁 Selecionar Arquivo Excel",
                                      command=self.selecionar_arquivo,
                                      width=25)
-        self.btn_arquivo.grid(row=0, column=0, padx=(0, 15), pady=(0, 10))
+        self.btn_arquivo.grid(row=0, column=0, padx=(0, 10), pady=(0, 10))
+        
+        # Botão para exportar modelo
+        self.btn_exportar = ttk.Button(contatos_frame, 
+                                      text="📥 Exportar Modelo Excel",
+                                      command=self.exportar_modelo,
+                                      width=25)
+        self.btn_exportar.grid(row=0, column=1, padx=(0, 10), pady=(0, 10))
         
         # Label do arquivo selecionado
         self.label_arquivo = ttk.Label(contatos_frame, 
                                       text="Nenhum arquivo selecionado",
                                       foreground="gray",
                                       font=('Arial', 10))
-        self.label_arquivo.grid(row=0, column=1, sticky="ew", pady=(0, 10))
+        self.label_arquivo.grid(row=0, column=2, sticky="ew", pady=(0, 10))
         
         # Treeview para mostrar contatos
-        self.tree_contatos = ttk.Treeview(contatos_frame, columns=("numero",), show="headings", height=10)
+        self.tree_contatos = ttk.Treeview(contatos_frame, columns=("numero",), show="headings", height=8)
         self.tree_contatos.heading("numero", text="Números de Telefone")
-        self.tree_contatos.column("numero", width=200, anchor="center")
-        self.tree_contatos.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        self.tree_contatos.column("numero", width=400, anchor="w")
+        self.tree_contatos.grid(row=1, column=0, columnspan=3, sticky="ewns", pady=(0, 10))
         
         # Scrollbar para treeview
         tree_scroll = ttk.Scrollbar(contatos_frame, orient="vertical", command=self.tree_contatos.yview)
-        tree_scroll.grid(row=1, column=2, sticky="ns", pady=(0, 10))
+        tree_scroll.grid(row=1, column=3, sticky="ns", pady=(0, 10))
         self.tree_contatos.configure(yscrollcommand=tree_scroll.set)
         
         # Contador de contatos
         ttk.Label(contatos_frame, 
                  textvariable=self.contador_contatos,
-                 font=('Arial', 10, 'bold')).grid(row=2, column=0, columnspan=2, pady=(5, 0))
+                 font=('Arial', 10, 'bold')).grid(row=2, column=0, columnspan=3, pady=(5, 0))
         
         # === CONFIGURAÇÕES ===
         config_frame = ttk.LabelFrame(main_frame, text="⚙️ Configurações", padding="10")
         config_frame.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(0, 20))
         config_frame.columnconfigure(1, weight=1)
         
+        # Modo de envio
+        ttk.Label(config_frame, text="Modo de envio:").grid(row=0, column=0, sticky="w", pady=(0, 10))
+        
+        modo_envio_frame = ttk.Frame(config_frame)
+        modo_envio_frame.grid(row=0, column=1, padx=(10, 0), sticky="w", pady=(0, 10))
+        
+        ttk.Checkbutton(modo_envio_frame,
+                       text="📨 Enviar em uma única mensagem",
+                       variable=self.envio_unico).pack(anchor="w")
+        
+        self.label_modo_envio = ttk.Label(modo_envio_frame,
+                                         text="Se desmarcado: enviará dividido por parágrafos (quebras duplas \\n\\n)",
+                                         font=('Arial', 8, 'italic'),
+                                         foreground="blue")
+        self.label_modo_envio.pack(anchor="w", pady=(3, 0))
+        
         # Pausa entre envios
-        ttk.Label(config_frame, text="Pausa entre envios (segundos):").grid(row=0, column=0, sticky="w", pady=(0, 10))
-        pausa_entry = ttk.Entry(config_frame, textvariable=self.pausa_var, width=10)
-        pausa_entry.grid(row=0, column=1, padx=(10, 0), sticky="w", pady=(0, 10))
+        ttk.Label(config_frame, text="Pausa entre envios (segundos):").grid(row=1, column=0, sticky="w", pady=(0, 10))
+        
+        pause_frame = ttk.Frame(config_frame)
+        pause_frame.grid(row=1, column=1, padx=(10, 0), sticky="ew", pady=(0, 10))
+        pause_frame.columnconfigure(2, weight=1)
+        
+        ttk.Checkbutton(pause_frame, 
+                       text="🎲 Aleatória",
+                       variable=self.usar_pausa_aleatoria,
+                       command=self.atualizar_modo_pausa).pack(side="left", padx=(0, 10))
+        
+        pausa_entry = ttk.Entry(pause_frame, textvariable=self.pausa_var, width=8)
+        pausa_entry.pack(side="left", padx=(0, 5))
+        
+        self.pausa_min_label = ttk.Label(pause_frame, text="Mín:", foreground="gray")
+        self.pausa_min_label.pack(side="left", padx=(10, 5))
+        
+        self.pausa_min_entry = ttk.Entry(pause_frame, textvariable=self.pausa_min_var, width=8, state='disabled')
+        self.pausa_min_entry.pack(side="left", padx=(0, 10))
+        
+        self.pausa_max_label = ttk.Label(pause_frame, text="Máx:", foreground="gray")
+        self.pausa_max_label.pack(side="left", padx=(0, 5))
+        
+        self.pausa_max_entry = ttk.Entry(pause_frame, textvariable=self.pausa_max_var, width=8, state='disabled')
+        self.pausa_max_entry.pack(side="left")
         
         # Modo de execução do Chrome
-        ttk.Label(config_frame, text="Modo de execução:").grid(row=1, column=0, sticky="w", pady=(0, 5))
+        ttk.Label(config_frame, text="Modo de execução:").grid(row=2, column=0, sticky="w", pady=(0, 5))
         
         chrome_mode_frame = ttk.Frame(config_frame)
-        chrome_mode_frame.grid(row=1, column=1, sticky="w", padx=(10, 0), pady=(0, 5))
+        chrome_mode_frame.grid(row=2, column=1, sticky="w", padx=(10, 0), pady=(0, 5))
         
         ttk.Checkbutton(chrome_mode_frame, 
                        text="🔇 Executar Chrome em segundo plano (mais rápido)",
@@ -266,11 +407,11 @@ class AutomatizadorWhatsApp:
         self.status_label = ttk.Label(controls_frame, textvariable=self.status_var)
         self.status_label.grid(row=2, column=0, columnspan=3, pady=(5, 0))
         
-        # === LOG ===
+        # LabelFrame para log
         log_frame = ttk.LabelFrame(main_frame, text="📝 Log de Atividades", padding="10")
-        log_frame.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        log_frame.grid(row=6, column=0, columnspan=2, sticky="ewns", pady=(0, 10))
         log_frame.columnconfigure(0, weight=1)
-        log_frame.rowconfigure(0, weight=1)
+        log_frame.rowconfigure(1, weight=1)
         
         # Controles do log
         log_controls = ttk.Frame(log_frame)
@@ -287,8 +428,8 @@ class AutomatizadorWhatsApp:
                   command=self.limpar_log).grid(row=0, column=2, sticky="ew", padx=(10, 0))
         
         # Área de log
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=4, width=60)
-        self.log_text.grid(row=1, column=0, sticky="ew")
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=10, width=60)
+        self.log_text.grid(row=1, column=0, sticky="ewns")
         
         # Configurar tags para cores
         self.log_text.tag_configure("success", foreground="green")
@@ -323,6 +464,20 @@ class AutomatizadorWhatsApp:
                 text="💻 Modo visual: Chrome será visível (mais lento, mas você pode acompanhar)",
                 foreground="blue"
             )
+    
+    def atualizar_modo_pausa(self):
+        """Ativa/desativa campos de pausa aleatória"""
+        if self.usar_pausa_aleatoria.get():
+            self.pausa_min_entry.config(state='normal')
+            self.pausa_max_entry.config(state='normal')
+            self.pausa_min_label.config(foreground="black")
+            self.pausa_max_label.config(foreground="black")
+        else:
+            self.pausa_min_entry.config(state='disabled')
+            self.pausa_max_entry.config(state='disabled')
+            self.pausa_min_label.config(foreground="gray")
+            self.pausa_max_label.config(foreground="gray")
+    
     def atualizar_contador(self, event=None):
         """Atualiza contador de caracteres"""
         texto = self.texto_mensagem.get("1.0", tk.END).strip()
@@ -363,9 +518,24 @@ class AutomatizadorWhatsApp:
     def limpar_logs_unicos(self):
         """Limpa o cache de logs únicos para permitir nova exibição"""
         self.logs_mostrados.clear()
+    
+    def exportar_modelo(self):
+        """Exporta modelo de planilha Excel para preenchimento"""
+        try:
+            arquivo_modelo, sucesso = exportar_modelo_excel()
+            
+            if sucesso:
+                self.log(f"✅ Modelo exportado com sucesso: {arquivo_modelo}", "success")
+                messagebox.showinfo("Sucesso", f"✅ Modelo exportado com sucesso!\n\nArquivo: {arquivo_modelo}\n\nPreencha a coluna 'Numero' com os telefones e carregue o arquivo.")
+            else:
+                self.log(f"❌ Erro ao exportar modelo: {arquivo_modelo}", "error")
+                messagebox.showerror("Erro", f"Erro ao exportar modelo:\n{arquivo_modelo}")
+        except Exception as e:
+            self.log(f"❌ Erro: {str(e)}", "error")
+            messagebox.showerror("Erro", f"Erro ao exportar modelo:\n{str(e)}")
         
     def selecionar_arquivo(self):
-        """Seleciona arquivo Excel com lista de contatos"""
+        """Seleciona arquivo Excel com lista de contatos e valida números"""
         arquivo = filedialog.askopenfilename(
             title="Selecione o arquivo Excel com os contatos",
             filetypes=[("Arquivos Excel", "*.xlsx"), ("Todos os arquivos", "*.*")]
@@ -381,9 +551,11 @@ class AutomatizadorWhatsApp:
                     messagebox.showerror("Erro", "O arquivo deve ter uma coluna chamada 'Numero'")
                     return
                 
-                # Extrai números válidos
-                numeros = df['Numero'].astype(str).tolist()
-                self.lista_numeros = [num.strip() for num in numeros if num.strip() and num != 'nan']
+                # Extrai números e valida
+                numeros_brutos = df['Numero'].astype(str).tolist()
+                numeros_validos, numeros_invalidos, duplicatas = remover_duplicatas_e_validar(numeros_brutos)
+                
+                self.lista_numeros = numeros_validos
                 
                 # Limpa treeview e adiciona novos números
                 for item in self.tree_contatos.get_children():
@@ -393,11 +565,17 @@ class AutomatizadorWhatsApp:
                     self.tree_contatos.insert("", "end", values=(numero,))
                 
                 # Atualiza labels
-                self.label_arquivo.configure(text=f"Arquivo carregado: {len(self.lista_numeros)} ({len(self.lista_numeros)} contatos)",
+                self.label_arquivo.configure(text=f"✅ {len(self.lista_numeros)} válidos | ⚠️ {len(numeros_invalidos)} inválidos | 🔄 {duplicatas} duplicatas",
                                             foreground="green")
-                self.contador_contatos.set(f"Total: {len(self.lista_numeros)} contatos")
+                self.contador_contatos.set(f"Total: {len(self.lista_numeros)} contatos válidos")
                 
-                self.log(f"Arquivo carregado: {arquivo} ({len(self.lista_numeros)} contatos)", "success")
+                # Log detalhado
+                self.log(f"📁 Arquivo carregado: {arquivo}", "success")
+                self.log(f"✅ Números válidos: {len(self.lista_numeros)}", "success")
+                if duplicatas > 0:
+                    self.log(f"🔄 Duplicatas removidas: {duplicatas}", "warning")
+                if len(numeros_invalidos) > 0:
+                    self.log(f"⚠️ Números inválidos: {len(numeros_invalidos)} - {', '.join(numeros_invalidos[:5])}{'...' if len(numeros_invalidos) > 5 else ''}", "warning")
                 
             except Exception as e:
                 messagebox.showerror("Erro", f"Erro ao carregar arquivo: {str(e)}")
@@ -409,70 +587,59 @@ class AutomatizadorWhatsApp:
             modo_desc = "segundo plano (headless)" if self.modo_headless.get() else "visual"
             self.log(f"Configurando Chrome WebDriver em modo {modo_desc}...", "info")
             
-            # Criar diretório temporário para perfil
-            temp_dir = None
-            profile_dir = None
-            try:
-                temp_dir = tempfile.mkdtemp(prefix="whatsapp_automation_")
-                self.log(f"Criando perfil temporário em: {temp_dir}", "info")
-                
-                options = Options()
-                options.add_argument(f"--user-data-dir={temp_dir}")
-                options.add_argument("--profile-directory=AutomationProfile")
-                options.add_argument("--disable-blink-features=AutomationControlled")
-                options.add_experimental_option("excludeSwitches", ["enable-automation"])
-                options.add_experimental_option('useAutomationExtension', False)
-                options.add_argument("--disable-extensions")
-                options.add_argument("--no-sandbox")
-                options.add_argument("--disable-dev-shm-usage")
-                options.add_argument("--disable-gpu")
-                options.add_argument("--disable-web-security")
-                options.add_argument("--allow-running-insecure-content")
-                options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-                
-                # Configurações específicas do modo
-                if self.modo_headless.get():
-                    # Modo segundo plano: inicia visível para login, depois fica headless
-                    options.add_argument("--window-size=800,600")
-                    options.add_argument("--window-position=200,200")
-                    self.log("🚀 Modo segundo plano: Chrome visível para login, depois ficará invisível", "info")
-                else:
-                    # Modo visual (padrão) - janela de tamanho normal, não maximizada
-                    options.add_argument("--window-size=1200,800")
-                    options.add_argument("--window-position=100,100")
-                    self.log("💻 Modo visual ativado - Chrome será visível", "info")
-                
-                # Otimizações gerais para performance
-                options.add_argument("--disable-background-networking")
-                options.add_argument("--disable-background-timer-throttling")
-                options.add_argument("--disable-client-side-phishing-detection")
-                options.add_argument("--disable-default-apps")
-                options.add_argument("--disable-hang-monitor")
-                options.add_argument("--disable-popup-blocking")
-                options.add_argument("--disable-prompt-on-repost")
-                options.add_argument("--disable-sync")
-                options.add_argument("--metrics-recording-only")
-                options.add_argument("--no-first-run")
-                options.add_argument("--safebrowsing-disable-auto-update")
-                options.add_argument("--password-store=basic")
-                
-                service = Service(ChromeDriverManager().install())
-                driver = webdriver.Chrome(service=service, options=options)
-                
-                # Remove assinatura de automação
-                driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-                
-                self.log("✅ Chrome configurado com sucesso!", "success")
-                if not self.modo_headless.get():
-                    self.log("🔑 Será necessário escanear o QR Code para fazer login", "info")
-                else:
-                    self.log("🔑 QR Code será carregado automaticamente - aguarde instruções", "info")
-                
-                return driver
-                
-            except Exception as e:
-                self.log(f"❌ Erro ao configurar Chrome: {str(e)}", "error")
-                return None
+            temp_dir = tempfile.mkdtemp(prefix="whatsapp_automation_")
+            self.log(f"Criando perfil temporário em: {temp_dir}", "info")
+            
+            options = Options()
+            options.add_argument(f"--user-data-dir={temp_dir}")
+            options.add_argument("--profile-directory=AutomationProfile")
+            options.add_argument("--disable-blink-features=AutomationControlled")
+            options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            options.add_experimental_option('useAutomationExtension', False)
+            options.add_argument("--disable-extensions")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--disable-web-security")
+            options.add_argument("--allow-running-insecure-content")
+            options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+            
+            # Configurações específicas do modo
+            if self.modo_headless.get():
+                options.add_argument("--window-size=800,600")
+                options.add_argument("--window-position=200,200")
+                self.log("🚀 Modo segundo plano: Chrome visível para login, depois ficará invisível", "info")
+            else:
+                options.add_argument("--window-size=1200,800")
+                options.add_argument("--window-position=100,100")
+                self.log("💻 Modo visual ativado - Chrome será visível", "info")
+            
+            # Otimizações gerais
+            options.add_argument("--disable-background-networking")
+            options.add_argument("--disable-background-timer-throttling")
+            options.add_argument("--disable-client-side-phishing-detection")
+            options.add_argument("--disable-default-apps")
+            options.add_argument("--disable-hang-monitor")
+            options.add_argument("--disable-popup-blocking")
+            options.add_argument("--disable-prompt-on-repost")
+            options.add_argument("--disable-sync")
+            options.add_argument("--metrics-recording-only")
+            options.add_argument("--no-first-run")
+            options.add_argument("--safebrowsing-disable-auto-update")
+            options.add_argument("--password-store=basic")
+            
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=options)
+            
+            driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            
+            self.log("✅ Chrome configurado com sucesso!", "success")
+            if not self.modo_headless.get():
+                self.log("🔑 Será necessário escanear o QR Code para fazer login", "info")
+            else:
+                self.log("🔑 QR Code será carregado automaticamente - aguarde instruções", "info")
+            
+            return driver
                 
         except Exception as e:
             self.log(f"❌ Erro ao configurar Chrome: {str(e)}", "error")
@@ -737,64 +904,57 @@ class AutomatizadorWhatsApp:
             # LÓGICA INTELIGENTE DE DIVISÃO DE MENSAGEM
             self.log("🤖 Analisando estrutura da mensagem...", "info", unico=True)
             
-            # Verifica se há parágrafos (quebras de linha)
-            if '\n\n' in mensagem or mensagem.count('\n') >= 2:
-                # Dividir por parágrafos
-                paragrafos = []
+            # Verificar modo de envio do usuário
+            if self.envio_unico.get():
+                # Enviar TUDO em uma única mensagem
+                self.log("📨 Modo: MENSAGEM ÚNICA - enviando tudo junto", "info")
                 
-                # Primeiro tenta dividir por \n\n (parágrafos reais)
-                if '\n\n' in mensagem:
-                    paragrafos = [p.strip() for p in mensagem.split('\n\n') if p.strip()]
-                    self.log(f"📝 Mensagem dividida em {len(paragrafos)} parágrafos (por \\n\\n)", "info")
-                
-                # Se não tiver \n\n mas tiver várias quebras simples, divide por \n
-                elif mensagem.count('\n') >= 2:
-                    linhas = [l.strip() for l in mensagem.split('\n') if l.strip()]
-                    # Agrupa linhas em parágrafos menores (máximo 3 linhas por parágrafo)
-                    paragrafos = []
-                    for i in range(0, len(linhas), 3):
-                        paragrafo = '\n'.join(linhas[i:i+3])
-                        paragrafos.append(paragrafo)
-                    self.log(f"📝 Mensagem dividida em {len(paragrafos)} blocos (por quebras de linha)", "info")
-                
-                # Enviar cada parágrafo separadamente
-                for i, paragrafo in enumerate(paragrafos, 1):
-                    if paragrafo.strip():
-                        self.log(f"📤 Enviando parte {i}/{len(paragrafos)}: {paragrafo[:50]}{'...' if len(paragrafo) > 50 else ''}", "info")
-                        
-                        # Limpar e focar na caixa de texto
-                        caixa_texto.clear()
-                        caixa_texto.click()
-                        caixa_texto.send_keys(paragrafo.strip())
-                        
-                        time.sleep(1)
-                        
-                        # Enviar parte
-                        caixa_texto.send_keys(Keys.ENTER)
-                        
-                        # Pausa entre partes (para não parecer spam)
-                        if i < len(paragrafos):
-                            time.sleep(2)
-                            self.log(f"⏸️ Pausa entre partes ({i}/{len(paragrafos)})...", "info")
-                
-                self.log(f"✅ Mensagem completa enviada em {len(paragrafos)} partes!", "success")
-                
-            else:
-                # Mensagem sem parágrafos - enviar tudo junto
-                self.log("📤 Mensagem única (sem parágrafos) - enviando tudo junto", "info")
-                
-                # Limpar e focar na caixa de texto
                 caixa_texto.clear()
                 caixa_texto.click()
                 caixa_texto.send_keys(mensagem)
                 
                 time.sleep(2)
-                
-                # Enviar mensagem
                 self.log("Enviando mensagem...", "info")
                 caixa_texto.send_keys(Keys.ENTER)
+                self.log("✅ Mensagem única enviada com sucesso!", "success")
+            
+            else:
+                # Enviar DIVIDIDO por parágrafos (quebras duplas \n\n)
+                self.log("📨 Modo: PARÁGRAFOS - enviando em partes separadas", "info")
                 
-                self.log("✅ Mensagem enviada com sucesso!", "success")
+                if '\n\n' in mensagem:
+                    # Dividir por parágrafos (quebras duplas)
+                    paragrafos = [p.strip() for p in mensagem.split('\n\n') if p.strip()]
+                    self.log(f"📝 Mensagem dividida em {len(paragrafos)} parágrafos", "info")
+                    
+                    # Enviar cada parágrafo separadamente
+                    for i, paragrafo in enumerate(paragrafos, 1):
+                        self.log(f"📤 Enviando parágrafo {i}/{len(paragrafos)}: {paragrafo[:40]}{'...' if len(paragrafo) > 40 else ''}", "info")
+                        
+                        caixa_texto.clear()
+                        caixa_texto.click()
+                        caixa_texto.send_keys(paragrafo.strip())
+                        
+                        time.sleep(1)
+                        caixa_texto.send_keys(Keys.ENTER)
+                        
+                        # Pausa entre partes
+                        if i < len(paragrafos):
+                            time.sleep(2)
+                    
+                    self.log(f"✅ Mensagem completa enviada em {len(paragrafos)} parágrafos!", "success")
+                else:
+                    # Se não houver parágrafos, enviar tudo junto mesmo assim
+                    self.log("📨 Sem parágrafos detectados - enviando como mensagem única", "info")
+                    
+                    caixa_texto.clear()
+                    caixa_texto.click()
+                    caixa_texto.send_keys(mensagem)
+                    
+                    time.sleep(2)
+                    self.log("Enviando mensagem...", "info")
+                    caixa_texto.send_keys(Keys.ENTER)
+                    self.log("✅ Mensagem enviada com sucesso!", "success")
             
             time.sleep(3)
             return True
@@ -804,7 +964,7 @@ class AutomatizadorWhatsApp:
             return False
 
     def iniciar_automacao(self):
-        """Inicia automação completa baseada no código original"""
+        """Inicia automação completa com validações melhoradas"""
         # Verifica se tem arquivo
         if not self.lista_numeros:
             messagebox.showerror("Erro", "Selecione um arquivo com a lista de contatos!")
@@ -818,17 +978,28 @@ class AutomatizadorWhatsApp:
             
         # Validar pausa
         try:
-            pausa = int(self.pausa_var.get())
-            self.PAUSA_ENTRE_ENVIOS = pausa
+            if self.usar_pausa_aleatoria.get():
+                pausa_min = int(self.pausa_min_var.get())
+                pausa_max = int(self.pausa_max_var.get())
+                if pausa_min >= pausa_max:
+                    messagebox.showerror("Erro", "Pausa mínima deve ser menor que a máxima!")
+                    return
+                self.pausa_min = pausa_min
+                self.pausa_max = pausa_max
+            else:
+                pausa = int(self.pausa_var.get())
+                self.PAUSA_ENTRE_ENVIOS = pausa
         except:
-            messagebox.showerror("Erro", "Pausa entre envios deve ser um número!")
+            messagebox.showerror("Erro", "Valores de pausa devem ser números!")
             return
             
         # Confirmação
+        modo_pausa = f"Aleatória ({self.pausa_min_var.get()}s a {self.pausa_max_var.get()}s)" if self.usar_pausa_aleatoria.get() else f"Fixa ({self.pausa_var.get()}s)"
         resposta = messagebox.askyesno(
             "Confirmar Automação",
             f"Iniciar envio para {len(self.lista_numeros)} contatos?\n\n"
-            f"Mensagem: {mensagem[:50]}{'...' if len(mensagem) > 50 else ''}\n\n"
+            f"Mensagem: {mensagem[:40]}{'...' if len(mensagem) > 40 else ''}\n"
+            f"Pausa: {modo_pausa}\n\n"
             f"⚠️ ATENÇÃO: Este processo pode levar muito tempo!\n\n"
             f"🔑 Será necessário escanear o QR Code do WhatsApp Web"
         )
@@ -877,7 +1048,7 @@ class AutomatizadorWhatsApp:
         threading.Thread(target=self.executar_teste, args=(mensagem, primeiro_numero), daemon=True).start()
         
     def executar_teste(self, mensagem, numero):
-        """Executa teste com um contato"""
+        """Executa teste com um contato e salva histórico"""
         try:
             # Configurar driver
             self.status_var.set("Configurando navegador para teste...")
@@ -904,10 +1075,13 @@ class AutomatizadorWhatsApp:
             
             if self.enviar_mensagem_selenium(self.driver, numero, mensagem):
                 self.log("✅ TESTE CONCLUÍDO COM SUCESSO!", "success")
+                self.log(f"📊 Teste salvo em: historico_envios.csv", "info")
+                salvar_historico_envio(numero, "✅ Teste Sucesso", mensagem, "Teste executado com sucesso")
                 self.status_var.set("Teste concluído com sucesso!")
-                messagebox.showinfo("Teste Concluído", f"✅ Mensagem enviada com sucesso para:\n{numero}")
+                messagebox.showinfo("Teste Concluído", f"✅ Mensagem enviada com sucesso para:\n{numero}\n\n📊 Histórico salvo!")
             else:
                 self.log("❌ TESTE FALHOU", "error")
+                salvar_historico_envio(numero, "❌ Teste Falha", mensagem, "Erro ao enviar teste")
                 self.status_var.set("Teste falhou!")
                 messagebox.showerror("Teste Falhou", f"❌ Não foi possível enviar para:\n{numero}")
                 
@@ -960,29 +1134,46 @@ class AutomatizadorWhatsApp:
                 
                 if self.enviar_mensagem_selenium(self.driver, numero, mensagem):
                     sucessos += 1
+                    salvar_historico_envio(numero, "✅ Sucesso", mensagem, "Mensagem enviada com sucesso")
+                    self.log(f"✅ Sucesso: {numero}", "success")
                 else:
                     falhas += 1
+                    salvar_historico_envio(numero, "❌ Falha", mensagem, "Erro ao enviar mensagem")
+                    self.log(f"❌ Falha: {numero}", "error")
                     
                 # Pausa entre envios (exceto no último)
                 if i < total - 1 and self.rodando:
-                    self.status_var.set(f"Aguardando {self.PAUSA_ENTRE_ENVIOS}s...")
-                    for segundo in range(self.PAUSA_ENTRE_ENVIOS):
+                    if self.usar_pausa_aleatoria.get():
+                        pausa = random.randint(self.pausa_min, self.pausa_max)
+                        self.log(f"⏰ Pausa aleatória: {pausa}s", "info")
+                    else:
+                        pausa = self.PAUSA_ENTRE_ENVIOS
+                        self.log(f"⏰ Pausa: {pausa}s", "info")
+                    
+                    self.status_var.set(f"Pausa: {pausa}s...")
+                    for segundo in range(pausa):
                         if not self.rodando:
                             break
                         time.sleep(1)
                         self.root.update_idletasks()
                         
             # Relatório final
-            self.log("AUTOMAÇÃO CONCLUÍDA!", "success")
-            self.log(f"Sucessos: {sucessos}", "success")
-            self.log(f"Falhas: {falhas}", "error" if falhas > 0 else "info")
-            self.log(f"Total processado: {sucessos + falhas}", "info")
+            taxa_sucesso = (sucessos / total * 100) if total > 0 else 0
+            self.log("=" * 50, "info")
+            self.log("🎉 AUTOMAÇÃO CONCLUÍDA!", "success")
+            self.log(f"✅ Sucessos: {sucessos}/{total} ({taxa_sucesso:.1f}%)", "success")
+            self.log(f"❌ Falhas: {falhas}/{total}", "error" if falhas > 0 else "info")
+            self.log(f"📊 Histórico salvo em: historico_envios.csv", "info")
+            self.log("=" * 50, "info")
             
             self.status_var.set(f"Concluído: {sucessos} sucessos, {falhas} falhas")
             
             messagebox.showinfo(
                 "Automação Concluída",
-                f"Envios finalizados!\n\n✅ Sucessos: {sucessos}\n❌ Falhas: {falhas}\n📊 Total: {sucessos + falhas}"
+                f"✅ Envios finalizados!\n\n"
+                f"✅ Sucessos: {sucessos}/{total} ({taxa_sucesso:.1f}%)\n"
+                f"❌ Falhas: {falhas}\n\n"
+                f"📊 Histórico salvo em: historico_envios.csv"
             )
             
         except Exception as e:
