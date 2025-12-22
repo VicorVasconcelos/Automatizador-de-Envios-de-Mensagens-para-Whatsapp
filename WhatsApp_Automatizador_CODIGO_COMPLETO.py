@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Automatizador WhatsApp - Versão Final
-Arquivo original: automatizador_whatsapp_interface.py
+Automatizador de Mensagens WhatsApp
 """
 
 import time
@@ -28,31 +27,24 @@ from webdriver_manager.chrome import ChromeDriverManager
 # ==================== FUNÇÕES UTILITÁRIAS ====================
 
 def validar_numero_telefone(numero):
-    """Valida e limpa número de telefone - aceita formato: 55XXXXXXXXXX ou XXXXXXXXXX"""
+    """Valida e limpa número de telefone"""
     if not numero:
         return None
     
-    # Converter para string e remover espaços/caracteres especiais
     numero_str = str(numero).strip()
     numero_limpo = re.sub(r'[^\d]', '', numero_str)
     
-    # Aceita: 55 + 2 dígitos código + 8 ou 9 dígitos do número (10 ou 11)
-    # Ou: apenas 10 ou 11 dígitos (assume código 55 + código área)
-    
     if len(numero_limpo) == 13 and numero_limpo.startswith('55'):
-        # Formato: 55 + código de área (2) + número (9 ou 10)
-        return numero_limpo  # Mantém como está (55XXXXXXXXXX)
+        return numero_limpo
     elif len(numero_limpo) == 11:
-        # Formato: código de área (2) + número (9)
-        return '55' + numero_limpo  # Adiciona código do Brasil
+        return '55' + numero_limpo
     elif len(numero_limpo) == 10:
-        # Formato: código de área (2) + número (8)
-        return '55' + numero_limpo  # Adiciona código do Brasil
+        return '55' + numero_limpo
     
-    return None  # Número inválido
+    return None
 
 def remover_duplicatas_e_validar(numeros):
-    """Remove duplicatas e retorna números válidos. Retorna (válidos, inválidos, duplicatas)"""
+    """Remove duplicatas e retorna (válidos, inválidos, duplicatas)"""
     validos = []
     invalidos = []
     vistos = set()
@@ -76,7 +68,6 @@ def salvar_historico_envio(numero, status, mensagem="", resultado=""):
     """Salva histórico de envio em CSV"""
     arquivo_historico = "historico_envios.csv"
     
-    # Se arquivo não existe, cria com headers
     criar_arquivo = not os.path.exists(arquivo_historico)
     
     try:
@@ -95,14 +86,12 @@ def salvar_historico_envio(numero, status, mensagem="", resultado=""):
         print(f"Erro ao salvar histórico: {str(e)}")
 
 def exportar_modelo_excel():
-    """Exporta modelo de planilha Excel para preenchimento de números"""
+    """Exporta modelo de planilha Excel"""
     try:
-        # Criar DataFrame com coluna de exemplo
         df = pd.DataFrame({
             'Numero': ['5511999999999', '5521998888888', '5585987777777']
         })
         
-        # Salvar arquivo
         arquivo_modelo = "MODELO_CONTATOS.xlsx"
         df.to_excel(arquivo_modelo, index=False, sheet_name='Contatos')
         
@@ -112,16 +101,13 @@ def exportar_modelo_excel():
 
 class AutomatizadorWhatsApp:
     def __init__(self):
-        # Controles de estado
         self.rodando = False
         self.driver = None
         self.lista_numeros = []
-        self.logs_mostrados = set()  # Controla logs únicos
+        self.logs_mostrados = set()
         
-        # Constantes
         self.PAUSA_ENTRE_ENVIOS = 20
         
-        # Interface
         self.root = tk.Tk()
         self.root.title("🚀 Automatizador WhatsApp - Selenium")
         self.root.geometry("1200x900")
@@ -213,22 +199,19 @@ class AutomatizadorWhatsApp:
         warning_frame.columnconfigure(0, weight=1)
         
         warning_text = ttk.Label(warning_frame, 
-                                text="⚠️ O script sempre abrirá um Chrome com perfil limpo\n"
-                                     "⚠️ Será necessário escanear o QR Code do WhatsApp Web para fazer login\n"
-                                     "⚠️ Este método pode violar os Termos de Serviço do WhatsApp\n"
-                                     "⚠️ Use com EXTREMA moderação para evitar bloqueio da conta",
+                                text="⚠️ Chrome será aberto com perfil limpo\n"
+                                     "⚠️ É necessário escanear o QR Code do WhatsApp Web\n"
+                                     "⚠️ Use com moderação pra não tomar ban",
                                 foreground="red")
         warning_text.grid(row=0, column=0, sticky="ew")
         
-        # === MENSAGEM ===
-        msg_frame = ttk.LabelFrame(main_frame, text="💬 Mensagem a Enviar", padding="15")
+        msg_frame = ttk.LabelFrame(main_frame, text="💬 Mensagem", padding="15")
         msg_frame.grid(row=2, column=0, columnspan=2, sticky="ewns", pady=(0, 15))
         msg_frame.columnconfigure(0, weight=1)
         
         self.texto_mensagem = tk.Text(msg_frame, height=6, wrap=tk.WORD, font=('Arial', 10))
         self.texto_mensagem.grid(row=0, column=0, sticky="ewns", pady=(0, 10))
         
-        # Texto padrão
         texto_padrao = ("Ola! Esta e uma mensagem de teste automatizada.\n\n"
                        "*Funcionalidades suportadas:*\n"
                        "- Links: https://www.google.com\n"
@@ -238,30 +221,25 @@ class AutomatizadorWhatsApp:
                        "Obrigado!")
         self.texto_mensagem.insert("1.0", texto_padrao)
         
-        # Contador de caracteres
         chars_frame = ttk.Frame(msg_frame)
         chars_frame.grid(row=1, column=0, sticky="ew", pady=(5, 0))
         chars_frame.columnconfigure(1, weight=1)
         
         ttk.Label(chars_frame, textvariable=self.contador_chars, font=('Arial', 9)).grid(row=0, column=0, sticky="ew")
         
-        # Dica de formatação
         ttk.Label(chars_frame, 
-                 text="💡 Dicas: *negrito* _itálico_ ~riscado~ + links funcionam! Emojis: use com moderação",
+                 text="💡 Dicas: *negrito* _itálico_ ~riscado~ + links funcionam!",
                  font=('Arial', 8, 'italic'),
                  foreground="blue").grid(row=0, column=1, sticky="ew", padx=(10, 0))
         
-        # Bind para atualizar contador
         self.texto_mensagem.bind('<KeyRelease>', self.atualizar_contador)
         
-        # === LISTA DE CONTATOS ===
-        contatos_frame = ttk.LabelFrame(main_frame, text="📋 Lista de Contatos", padding="15")
+        contatos_frame = ttk.LabelFrame(main_frame, text="📋 Contatos", padding="15")
         contatos_frame.grid(row=3, column=0, columnspan=2, sticky="ewns", pady=(0, 15))
         contatos_frame.columnconfigure(1, weight=1)
         contatos_frame.rowconfigure(1, weight=1)
         
-        # Botão para selecionar arquivo
-        self.btn_arquivo = ttk.Button(contatos_frame, 
+        self.btn_arquivo = ttk.Button(contatos_frame,
                                      text="📁 Selecionar Arquivo Excel",
                                      command=self.selecionar_arquivo,
                                      width=25)
