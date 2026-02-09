@@ -7,73 +7,76 @@
 ![Selenium](https://img.shields.io/badge/Selenium-43B02A?style=for-the-badge&logo=selenium&logoColor=white)
 ![Status](https://img.shields.io/badge/Status-Ativo-brightgreen?style=for-the-badge)
 
-**Ferramenta pra automatizar envio de mensagens em massa no WhatsApp**
+**Sistema pra mandar mensagem em massa no WhatsApp Web**
 
-[Características](#-características) •
-[Instalação](#-instalação) •
-[Como Usar](#-como-usar) •
-[Configuração](#-configuração) •
-[Melhorias Recentes](#-melhorias-recentes-fevereiro2026) •
-[Suporte](#-suporte)
+**Criado porque mandar mensagem uma por uma é muito trabalho!**
+
+[O que faz](#-o-que-faz) •
+[Como instalar](#-como-instalar) •
+[Como usar](#-como-usar) •
+[Configurações](#-configurações) •
+[Novidades](#-novidades-fevereiro2026) •
+[Contato](#-contato)
 
 </div>
 
 ---
 
-## 📋 Índice
+## 📋 O que tem aqui
 
-- [Características](#-características)
-- [Instalação](#-instalação)
-- [Como Usar](#-como-usar)
-- [Configuração](#-configuração)
-- [Formatos de Números](#-formatos-de-números)
-- [Funcionalidades](#-funcionalidades)
-- [Melhorias Recentes](#-melhorias-recentes-fevereiro2026)
-- [Importante](#-importante)
-- [Suporte](#-suporte)
-
----
-
-## 🎯 Características
-
-- Envio automático pra múltiplos contatos
-- Envia mensagem inteira ou dividida por parágrafos (você escolhe)
-- Importação de Excel (.xlsx) com lista de contatos
-- Pausa entre envios (configurável)
-- Logs em tempo real
-- Interface fácil de usar
-- Modo segundo plano (Chrome invisível após login)
+- [O que faz](#-o-que-faz)
+- [Como instalar](#-como-instalar)
+- [Como usar](#-como-usar)
+- [Configurações](#-configurações)
+- [Jeito certo de colocar os números](#-jeito-certo-de-colocar-os-números)
+- [Recursos](#-recursos)
+- [Novidades](#-novidades-fevereiro2026)
+- [Cuidados importantes](#-cuidados-importantes)
+- [Contato](#-contato)
 
 ---
 
-## 🛠️ Instalação
+## 🎯 O que faz
 
-### Pré-requisitos
-- Python 3.7 ou superior
-- Google Chrome instalado
-- Conexão com internet
+- Manda mensagem pra vários contatos de uma vez (automático)
+- Você escolhe: manda tudo junto ou divide por parágrafo
+- Carrega lista de contatos do Excel (.xlsx)
+- Espera um tempo entre cada envio (pra não tomar ban)
+- Mostra na tela o que tá fazendo
+- Interface simples de usar
+- Pode deixar o Chrome invisível depois de fazer login
 
-### Dependências
+---
+
+## 🛠️ Como instalar
+
+### O que você precisa ter instalado antes
+- Python 3.7 ou mais novo (se não tem, baixa no python.org)
+- Google Chrome (o navegador mesmo)
+- Internet funcionando
+
+### Instalar as bibliotecas
+Abre o terminal (CMD ou PowerShell) na pasta do projeto e roda:
 ```bash
 pip install -r requirements.txt
 ```
 
-Ou instale manualmente:
+Se der problema, instala uma por uma:
 ```bash
 pip install selenium pandas openpyxl webdriver-manager
 ```
 
-### Executar
+### Pra rodar o programa
 ```bash
 python WhatsApp_Automatizador_CODIGO_COMPLETO.py
 ```
 
 ---
 
-## 🚀 Como Usar
+## 🚀 Como usar
 
-### 1. Preparar o arquivo de contatos
-Crie um Excel (.xlsx) com uma coluna chamada **"Numero"**:
+### 1. Fazer a planilha de contatos
+Cria um arquivo Excel (.xlsx) com uma coluna chamada **"Numero"** (tem que ser esse nome):
 
 ```
 | Numero        |
@@ -88,55 +91,62 @@ Crie um Excel (.xlsx) com uma coluna chamada **"Numero"**:
 python WhatsApp_Automatizador_CODIGO_COMPLETO.py
 ```
 
-### 3. Configurar
-1. Seleciona o arquivo Excel
-2. Digita a mensagem
-3. Define a pausa entre envios
-4. Escolhe o modo (visual ou segundo plano)
+### 3. Configurar tudo
+1. Clica no botão pra escolher o arquivo Excel
+2. Escreve a mensagem que quer mandar
+3. Escolhe quanto tempo vai esperar entre cada envio
+4. Decide se quer ver o Chrome ou deixar ele invisível
 
-### 4. Fazer login
-1. QR Code aparece na tela do Chrome
-2. Escaneia no celular
-3. Pronto! A automação começa sozinha
+### 4. Fazer login no WhatsApp
+1. Vai abrir o Chrome com um QR Code
+2. Abre o WhatsApp no celular e escaneia o QR Code
+3. Pronto! Agora é só clicar em "Iniciar" e deixar rodar
 
-### 5. Acompanhar
-Os logs mostram tudo que tá acontecendo em tempo real.
-
----
-
-## ⚙️ Configuração
-
-### Modos
-- **Visual**: Chrome fica aberto pra você ver tudo
-- **Segundo Plano**: Chrome fica invisível depois do login
-
-### Pausa entre envios
-- Poucos contatos: 15-20 segundos
-- Médio volume: 25-30 segundos
-- Muitos contatos: 35-45 segundos
+### 5. Acompanhar os envios
+Na tela você vê tudo que tá acontecendo: quantos foram enviados, se deu erro, etc.
 
 ---
 
-## 📱 Formatos de Números
+## ⚙️ Configurações
 
-Aceita:
-- `5561984385187` (com código do país)
+### Modos do Chrome
+- **Visual**: Chrome fica aberto e você vê tudo acontecendo
+- **Segundo Plano**: Chrome fica invisível depois de fazer login (mais rápido)
+
+### Quanto tempo esperar entre cada envio
+**IMPORTANTE:** Se mandar muito rápido, o WhatsApp bloqueia!
+
+- Poucos contatos (até 50): 15-20 segundos
+- Quantidade média (50-200): 25-30 segundos
+- Muitos contatos (200+): 35-45 segundos
+
+💡 **Dica:** Sempre comece com tempo maior. Melhor demorar mais do que tomar ban!
+
+---
+
+## 📱 Jeito certo de colocar os números
+
+### ✅ Formatos que funcionam:
+- `5561984385187` (com código do país 55)
 - `61984385187` (só com DDD)
-- `+5561984385187` (formato internacional)
+- `+5561984385187` (com o +)
 
-Não aceita:
-- `(61) 98438-5187` (com caracteres especiais)
-- `984385187` (sem código de área)
+### ❌ Formatos que NÃO funcionam:
+- `(61) 98438-5187` (com parênteses e traço)
+- `984385187` (sem DDD)
+- `61 98438-5187` (com espaços)
+
+💡 **Dica:** O programa arruma automaticamente se tá faltando o 55, mas é melhor já colocar certinho!
 
 ---
 
-## 🔧 Funcionalidades
+## 🔧 Recursos
 
-### Envio Inteligente
-- **Mensagem única**: envia tudo de uma vez
-- **Dividido por parágrafos**: envia cada parágrafo como uma mensagem separada
+### Como a mensagem é enviada
+- **Mensagem única**: Manda tudo de uma vez só (recomendado)
+- **Dividido por parágrafo**: Manda cada parágrafo separado (útil pra mensagens longas)
 
-Exemplo:
+**Exemplo:**
 ```
 Olá!
 
@@ -145,54 +155,63 @@ Tudo bem?
 Como posso ajudar?
 ```
 
-Se dividir: envia 3 mensagens separadas com pausa entre cada uma.
+Se escolher "dividido": vai mandar 3 mensagens separadas.
 
-### Validação de Contatos
-- Remove duplicatas automaticamente
-- Valida números antes de enviar
-- Mostra quantos foram removidos
+### Limpeza automática da lista
+- Tira os números repetidos sozinho
+- Verifica se os números tão no formato certo
+- Mostra quantos tinha problema
 
-### Exportar Modelo
-Cria um arquivo `MODELO_CONTATOS.xlsx` pra você preencher e enviar
-
----
-
-## 🆕 Melhorias Recentes (Fevereiro/2026)
-
-### 📁 Salvamento Inteligente do Modelo
-- Agora o modelo de contatos é salvo direto na pasta **Documentos** do usuário
-- O explorador de arquivos abre automaticamente mostrando onde o arquivo foi salvo
-- Você não precisa mais procurar onde ficou o arquivo!
-
-### 📨 Correção no Envio de Mensagem Única
-- **Problema resolvido**: Quando marcava "enviar em mensagem única", o WhatsApp enviava múltiplas mensagens se tivesse quebras de linha
-- **Solução**: Agora usa SHIFT+ENTER pra manter todas as quebras de linha dentro de uma única mensagem
-- Resultado: Mensagem é enviada completa, preservando toda a formatação, sem dividir
+### Baixar modelo de planilha
+Tem um botão que cria o arquivo `MODELO_CONTATOS.xlsx` já pronto pra você só preencher
 
 ---
 
-## ⚠️ Importante
+## 🆕 Novidades (Fevereiro/2026)
 
-- Use só com seus próprios contatos
-- Não faça spam
-- Use pausas adequadas pra não tomar ban do WhatsApp
-- Teste sempre com poucos contatos primeiro
-- Mantém WhatsApp atualizado no celular
+### 📁 Agora salva o modelo direitinho
+- O arquivo modelo vai direto pra pasta **Documentos**
+- Abre a pasta automaticamente pra você ver onde ficou
+- Não precisa mais ficar procurando!
+
+### 📨 Consertamos o envio de mensagem única
+- **O problema:** Antes, mesmo marcando "mensagem única", se tivesse Enter no texto, mandava várias mensagens
+- **Como resolvemos:** Agora usa SHIFT+ENTER internamente pra manter tudo numa mensagem só
+- **Resultado:** A mensagem vai completa, com todas as quebras de linha, tudo junto
 
 ---
 
-## 🆘 Suporte
+## ⚠️ Cuidados importantes
 
-### Contato
-- **WhatsApp**: +55 (61) 98438-5187
-- **Email**: victorvasconcellos28@gmail.com
+**LEIA ISSO ANTES DE USAR:**
+
+- ⚠️ Só manda mensagem pra quem você conhece e autorizou
+- ⚠️ Não faz spam! WhatsApp bloqueia e é chato
+- ⚠️ Usa um tempo de espera bom entre os envios (pelo menos 20 segundos)
+- ⚠️ **SEMPRE** testa primeiro com 2-3 contatos antes de mandar pra lista toda
+- ⚠️ Mantém o WhatsApp do celular atualizado
+- ⚠️ Não fecha o Chrome enquanto tiver enviando
+
+**Se tomar ban, a culpa não é nossa! Use com responsabilidade.**
+
+---
+
+## 🆘 Contato
+
+**Tá com dúvida ou deu problema?**
+
+- 💬 **WhatsApp**: +55 (61) 98438-5187
+- 📧 **Email**: victorvasconcellos28@gmail.com
+- 🐛 **Bug/Sugestão**: Abre uma issue aqui no GitHub
 
 ---
 
 <div align="center">
 
-### Se ajudou, deixa uma ⭐!
+### 👍 Se o programa te ajudou, deixa uma estrela ⭐!
 
-**Feito com ❤️ por [Victor Vasconcelos](https://github.com/VicorVasconcelos)**
+**Feito com ☕ e muito ctrl+c ctrl+v por [Victor Vasconcelos](https://github.com/VicorVasconcelos)**
+
+*"Preguiça é a mãe da automação" - Algum programador aí*
 
 </div>
