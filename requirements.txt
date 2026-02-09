@@ -1,4 +1,14 @@
+# Dependências do Automatizador de WhatsApp
+# Se der erro na instalação, tenta instalar uma por uma
+
+# Controla o Chrome (abre, fecha, clica, digita, etc)
 selenium>=4.15.0
+
+# Lê arquivos Excel (.xlsx)
 pandas>=2.0.0
+
+# Ajuda o pandas a ler Excel (precisa dos dois)
 openpyxl>=3.1.0
+
+# Baixa o ChromeDriver automaticamente (não precisa baixar na mão)
 webdriver-manager>=4.0.0
